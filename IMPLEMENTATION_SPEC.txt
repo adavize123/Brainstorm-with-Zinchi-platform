@@ -1,0 +1,435 @@
+================================================================================
+ BRAINSTORM WITH ZINCHI — IMPLEMENTATION SPECIFICATION
+ A learning-management platform for Zinchi International (zinchi.org)
+ Inspired by the structure/UX patterns of tcyonline.com (test-prep portals),
+ not by copying any of its proprietary content, code, or design assets.
+================================================================================
+
+--------------------------------------------------------------------------------
+1. TECHNICAL ARCHITECTURE
+--------------------------------------------------------------------------------
+
+Stack
+  Framework........ Next.js 14 (App Router, React 18, Server Components)
+  Language......... TypeScript (strict mode)
+  Styling.......... Tailwind CSS + shadcn/ui (Radix primitives)
+  Animation........ Framer Motion
+  Forms/Validation. react-hook-form + zod
+  ORM.............. Prisma
+  Database......... PostgreSQL in production (Supabase-hosted or any Postgres).
+                     SQLite is used as the zero-config local/dev provider so the
+                     app can be installed and run with no external services.
+                     Switching providers is a one-line change in
+                     prisma/schema.prisma + DATABASE_URL (see section 8).
+  Auth............. NextAuth.js (Credentials provider, JWT sessions, bcrypt
+                     password hashing, role-based authorization)
+  State/data....... Server Components + Server Actions for mutations,
+                     TanStack Query on the client where live re-fetching is
+                     needed (e.g. countdown timers, dashboards)
+  Icons............ lucide-react
+  Charts........... Recharts (progress graphs on student dashboard)
+  Deployment target Vercel (app) + Supabase or Neon (Postgres)
+
+High-level architecture
+
+  ┌────────────────────┐        ┌─────────────────────────┐
+  │   Browser (client)  │◄──────►│  Next.js App Router      │
+  │  React + Tailwind   │  HTTP  │  - Server Components     │
+  │  shadcn/ui + Framer │        │  - Route Handlers (API)  │
+  └────────────────────┘        │  - Server Actions        │
+                                  │  - NextAuth middleware   │
+                                  └───────────┬─────────────┘
+                                              │ Prisma Client
+                                              ▼
+                                  ┌─────────────────────────┐
+                                  │  PostgreSQL / SQLite     │
+                                  │  (Users, Courses,        │
+                                  │   Materials, Assignments,│
+                                  │   Mock Exams, Results)   │
+                                  └─────────────────────────┘
+
+Directory structure (App Router)
+
+  src/
+    app/
+      (marketing)/                Public site: home, courses, about,
+                                   testimonials, faq, contact, apply
+      (auth)/login, /register     Auth pages
+      (dashboard)/
+        student/                  Student dashboard + sub-routes
+        prospector/                Prospector dashboard + sub-routes
+        admin/                    Admin dashboard + sub-routes
+      api/                        Route handlers (auth, courses, materials,
+                                   assignments, mock-exams, users, enquiries)
+    components/
+      ui/                         shadcn/ui primitives
+      marketing/                  Landing-page sections
+      dashboard/                  Shared dashboard shell, sidebar, topbar
+      forms/                      Reusable form components
+    lib/                          auth.ts, prisma.ts, utils.ts, validators.ts
+    types/                        Shared TS types
+  prisma/
+    schema.prisma
+    seed.ts
+
+--------------------------------------------------------------------------------
+2. SITEMAP & FEATURE REQUIREMENTS
+--------------------------------------------------------------------------------
+
+Public (marketing) site
+  /                    Hero, program highlights, stats, featured courses,
+                       testimonials preview, CTA
+  /courses             Searchable/filterable course catalogue
+  /courses/[slug]      Course detail (curriculum, duration, outcomes, CTA)
+  /about               Mission, story, team
+  /testimonials        Full testimonial wall
+  /faq                 Accordion FAQ
+  /contact             Contact form + booking/enquiry form (saved to DB)
+  /apply               Prospective student application/enquiry form
+  /login, /register    Auth screens (role assigned by admin/prospector on
+                       creation; public self-registration defaults to
+                       "student" and requires prospector/admin approval)
+
+Student dashboard (/student)
+  /student                       Overview: greeting, enrolled courses,
+                                  "Where You Stand" progress chart,
+                                  upcoming deadlines, quick actions
+  /student/courses               List of assigned courses + materials
+  /student/courses/[id]          Course detail: syllabus, materials list
+  /student/assignments           Assigned assignments, due dates, submission
+  /student/assignments/[id]      Assignment detail + submit work
+  /student/mock-tests            Assigned mock exams list (status: not
+                                  started / in progress / completed)
+  /student/mock-tests/[id]       Test-taking interface (timer, question
+                                  navigator, autosave, submit)
+  /student/mock-tests/[id]/result Score, section breakdown, correct/incorrect
+  /student/materials              All study materials library
+  /student/profile                Profile + password change
+
+Prospector dashboard (/prospector)   ("Prospector" = counselor/tutor role
+  /prospector                    Overview: student count, pending deadlines,
+                                  recent activity
+  /prospector/students           List/add/edit students, view progress
+  /prospector/students/[id]      Student profile + assign courses/tests
+  /prospector/courses            Create/edit/delete courses
+  /prospector/materials          Upload/manage study materials
+  /prospector/assignments        Create assignments, assign to students with
+                                  deadlines
+  /prospector/mock-tests         Build mock exams (sections, questions,
+                                  duration), assign with deadlines
+  /prospector/mock-tests/[id]/builder  Question builder (MCQ)
+
+Admin dashboard (/admin)
+  /admin                         Platform-wide stats (students, prospectors,
+                                  courses, tests taken)
+  /admin/students                Add/edit/delete students
+  /admin/prospectors             Add/edit/delete prospectors
+  /admin/courses                 Oversight of all courses
+  /admin/enquiries               Incoming contact/apply form submissions
+
+Cross-cutting features
+  - Global search & filters on course catalogue and dashboard tables
+  - Role-based navigation (student / prospector / admin shells differ)
+  - Deadline badges (overdue / due soon / upcoming) computed client-side
+  - Toast notifications for all mutations
+  - Responsive, mobile-first layout with a collapsible sidebar
+  - Empty states, loading skeletons, optimistic UI on key actions
+
+--------------------------------------------------------------------------------
+3. DATABASE / SCHEMA DESIGN (Prisma)
+--------------------------------------------------------------------------------
+
+enum-equivalent string unions (kept as String in SQLite dev schema; promote to
+native Prisma `enum` when switching to PostgreSQL):
+
+  Role            STUDENT | PROSPECTOR | ADMIN
+  EnquiryStatus   NEW | CONTACTED | CONVERTED | CLOSED
+  AssignmentStatus PENDING | SUBMITTED | LATE | GRADED
+  ExamAttemptStatus NOT_STARTED | IN_PROGRESS | SUBMITTED | GRADED
+  QuestionType    SINGLE_CHOICE | MULTIPLE_CHOICE
+
+Core tables
+
+  User
+    id, name, email (unique), passwordHash, role, avatarUrl, phone,
+    createdBy (self-relation to the prospector/admin who created the account),
+    createdAt, updatedAt
+
+  Course
+    id, title, slug (unique), description, category, level, durationWeeks,
+    imageUrl, isPublished, createdById (Prospector/Admin), createdAt
+
+  Enrollment (Student <-> Course, many-to-many with metadata)
+    id, studentId, courseId, assignedById, assignedAt, progressPercent
+
+  Material
+    id, title, type (PDF | VIDEO | LINK | NOTE), url/content, courseId,
+    createdById, createdAt
+
+  Assignment
+    id, title, description, courseId, createdById, createdAt
+
+  AssignmentTarget (Assignment <-> Student with deadline)
+    id, assignmentId, studentId, dueAt, status, submissionText,
+    submissionUrl, submittedAt, grade, feedback
+
+  MockExam
+    id, title, courseId (nullable = general), durationMinutes,
+    totalMarks, createdById, createdAt
+
+  ExamSection
+    id, mockExamId, title, order
+
+  Question
+    id, sectionId, prompt, type, options (JSON: [{id,text}]),
+    correctOptionIds (JSON string[]), marks, order
+
+  ExamAssignment (MockExam <-> Student with deadline)
+    id, mockExamId, studentId, assignedById, dueAt, status
+
+  ExamAttempt
+    id, examAssignmentId, startedAt, submittedAt, score, totalMarks, status
+
+  ExamAnswer
+    id, attemptId, questionId, selectedOptionIds (JSON), isCorrect
+
+  Enquiry (contact/apply forms)
+    id, name, email, phone, message, source (CONTACT | APPLY), status,
+    createdAt
+
+  Testimonial
+    id, name, role, quote, avatarUrl, isPublished, order
+
+Relationships summary
+  User(PROSPECTOR/ADMIN) 1—* Course, Material, Assignment, MockExam (creator)
+  User(STUDENT) *—* Course (via Enrollment)
+  User(STUDENT) *—* Assignment (via AssignmentTarget, carries deadline/status)
+  User(STUDENT) *—* MockExam (via ExamAssignment, carries deadline/status)
+  MockExam 1—* ExamSection 1—* Question
+  ExamAssignment 1—1 ExamAttempt 1—* ExamAnswer
+
+--------------------------------------------------------------------------------
+4. UI/UX & COMPONENT SYSTEM
+--------------------------------------------------------------------------------
+
+Design language
+  - Brand palette derived from Zinchi's identity: deep navy/indigo primary,
+    a warm gold/amber accent, neutral off-white surfaces (see globals.css
+    CSS variables — easy to retune to exact Zinchi brand colors later).
+  - Typography: Inter (system fallback), clear type scale, generous
+    whitespace, rounded-xl cards with soft shadows.
+  - Motion: Framer Motion for hero entrance, staggered card reveals,
+    page-transition fades, and micro-interactions on buttons/tabs — kept
+    subtle and performance-conscious (respects prefers-reduced-motion).
+
+Component system (shadcn/ui-based, in components/ui)
+  Button, Card, Input, Textarea, Select, Badge, Avatar, Tabs, Dialog,
+  Sheet (mobile nav/sidebar), DropdownMenu, Table, Progress, Skeleton,
+  Toast/Toaster, Accordion, Separator, Label, Checkbox, RadioGroup
+
+Shared dashboard shell
+  - Persistent sidebar (role-aware nav items) + topbar (search, avatar menu,
+    credits/notifications placeholder) mirroring the reference screenshot's
+    structure (top nav tabs, "Where You Stand" card, "What Next" panel).
+  - Reusable DataTable for admin/prospector CRUD lists with search + row
+    actions (edit/delete via Dialog confirmation).
+  - StatCard, ProgressChart (Recharts), DeadlineBadge, CourseCard,
+    TestimonialCard components reused across dashboards and marketing site.
+
+Accessibility
+  - Semantic landmarks, skip-to-content link, visible focus states,
+    labelled form controls, sufficient color contrast (WCAG AA),
+    keyboard-navigable menus/dialogs (Radix provides this out of the box),
+    reduced-motion media query respected by Framer Motion variants.
+
+--------------------------------------------------------------------------------
+5. USER / ADMIN WORKFLOWS
+--------------------------------------------------------------------------------
+
+Student
+  1. Logs in -> lands on /student overview.
+  2. Views assigned courses -> opens course -> reads materials.
+  3. Sees assignments with due dates -> submits text/link before deadline.
+  4. Sees assigned mock exams -> starts attempt -> timed question flow ->
+     submits -> auto-graded -> views result breakdown.
+  5. Tracks progress on overview chart, updates profile.
+
+Prospector
+  1. Logs in -> lands on /prospector overview.
+  2. Adds a new student (creates User with role=STUDENT, sends credentials).
+  3. Creates a course, uploads materials to it.
+  4. Creates an assignment or mock exam, assigns it to one or more students
+     with a due date -> student sees it immediately on their dashboard.
+  5. Reviews submissions/results, gives grades/feedback.
+
+Admin
+  1. Logs in -> lands on /admin overview (platform stats).
+  2. Manages the roster of Students and Prospectors: add / edit / delete
+     (delete performs a soft-guard confirmation dialog).
+  3. Oversees all courses and incoming contact/apply enquiries.
+  4. Can perform any Prospector action (superset of permissions).
+
+Auth/permission rules
+  - Route groups protected by middleware.ts using the NextAuth JWT; each
+    (dashboard) sub-tree checks session.role and redirects unauthorized
+    users to /login or to their own dashboard.
+  - Server Actions re-validate role server-side (never trust client role).
+
+--------------------------------------------------------------------------------
+6. API & INTEGRATION REQUIREMENTS
+--------------------------------------------------------------------------------
+
+Route handlers (REST-style, under src/app/api)
+  /api/auth/[...nextauth]        NextAuth handlers
+  /api/register                  Public self-registration (student)
+  /api/enquiries                 POST contact/apply forms
+  /api/students                  GET/POST (prospector/admin)
+  /api/students/[id]             GET/PATCH/DELETE
+  /api/prospectors                GET/POST/PATCH/DELETE (admin only)
+  /api/courses                   GET/POST/PATCH/DELETE
+  /api/materials                 GET/POST/PATCH/DELETE
+  /api/assignments               GET/POST/PATCH/DELETE + /submit /grade
+  /api/mock-exams                GET/POST/PATCH/DELETE + question CRUD
+  /api/mock-exams/[id]/attempt   POST start, PATCH answer, POST submit
+
+Where possible, mutations from within dashboard pages use Next.js Server
+Actions instead of hitting these routes directly; the REST routes exist for
+external integration and for the client-side test-taking flow (needs
+fetch-based autosave).
+
+Future integrations (documented, not built in v1)
+  - Email (Resend/Postmark) for credential delivery & deadline reminders
+  - File storage (Supabase Storage/S3) for material uploads & submissions
+  - Payment gateway (Paystack/Flutterwave) for paid course enrollment
+  - Calendar sync (Google Calendar) for deadlines
+
+--------------------------------------------------------------------------------
+7. SECURITY, SEO, ACCESSIBILITY, PERFORMANCE
+--------------------------------------------------------------------------------
+
+Security
+  - Passwords hashed with bcrypt, never returned from any API.
+  - Role checks enforced server-side on every mutation (defense in depth).
+  - Zod validation on all form/server-action/API inputs.
+  - CSRF handled by NextAuth/Next.js server actions by default.
+  - Prisma parameterizes all queries (no raw SQL injection surface).
+  - Secrets via .env, never committed (.env.example provided).
+
+SEO
+  - Metadata API (generateMetadata) for title/description per public page.
+  - Semantic headings, sitemap.xml + robots.ts, Open Graph tags, canonical
+    URLs on marketing pages.
+
+Accessibility — see section 4.
+
+Performance
+  - Server Components by default; client components only where interactive.
+  - Image optimization via next/image, font optimization via next/font.
+  - Route-level code splitting (automatic with App Router).
+  - Skeleton loading states, streaming with Suspense on data-heavy pages.
+
+--------------------------------------------------------------------------------
+8. DEVELOPMENT PHASES & DEPLOYMENT PLAN
+--------------------------------------------------------------------------------
+
+Phase 0 — Spec (this document)
+Phase 1 — Scaffolding: Next.js/TS/Tailwind/shadcn/Prisma project setup,
+          design tokens, base layout, Prisma schema + seed data.
+Phase 2 — Auth: NextAuth credentials provider, login/register, middleware
+          route protection, role-based redirects.
+Phase 3 — Marketing site: home, courses, about, testimonials, faq, contact,
+          apply — fully wired to the Enquiry/Course/Testimonial tables.
+Phase 4 — Student dashboard: courses, materials, assignments (view+submit),
+          mock exam list, test-taking engine, results, profile.
+Phase 5 — Prospector dashboard: student management, course/material/
+          assignment/mock-exam creation & assignment-with-deadline flows.
+Phase 6 — Admin dashboard: student & prospector CRUD, platform stats,
+          enquiries inbox.
+Phase 7 — Polish: animations, empty/loading states, responsive QA,
+          accessibility pass, SEO metadata, README + deployment docs.
+
+Deployment plan
+  - App hosted on Vercel; connect GitHub repo for CI/CD on push to main.
+  - Database: Supabase (or Neon) Postgres — set DATABASE_URL, run
+    `npx prisma migrate deploy` in the build pipeline.
+  - Switching from local SQLite to Postgres:
+      1. In prisma/schema.prisma set datasource provider to "postgresql".
+      2. Point DATABASE_URL at the Supabase/Neon connection string.
+      3. Re-run `npx prisma migrate dev --name init`.
+  - Environment variables: DATABASE_URL, NEXTAUTH_SECRET, NEXTAUTH_URL.
+
+Local run
+  npm install
+  npx prisma migrate dev --name init
+  npx prisma db seed
+  npm run dev
+
+Seeded demo accounts (see prisma/seed.ts)
+  admin@zinchi.org      / Admin123!    (ADMIN)
+  prospector@zinchi.org / Prospect123! (PROSPECTOR)
+  student@zinchi.org    / Student123!  (STUDENT)
+
+--------------------------------------------------------------------------------
+9. USER JOURNEY / SYSTEM FLOWCHART
+--------------------------------------------------------------------------------
+
+                         ┌───────────────────────────┐
+                         │      Public Visitor        │
+                         └──────────────┬─────────────┘
+                                        │
+                 ┌──────────────────────┼───────────────────────┐
+                 ▼                      ▼                        ▼
+        Browses Courses/About   Submits Apply/Contact     Clicks Login/Register
+                 │                      │                        │
+                 │                      ▼                        ▼
+                 │              Enquiry saved to DB      ┌───────────────┐
+                 │              (visible to Admin/        │  NextAuth      │
+                 │               Prospector inbox)        │  Credentials   │
+                 │                                        └───────┬───────┘
+                 │                                                │
+                 │                                    role read from JWT
+                 │                                                │
+                 │              ┌─────────────────────────────────┼─────────────────────────────────┐
+                 │              ▼                                 ▼                                 ▼
+                 │      ┌───────────────┐                 ┌───────────────┐                 ┌───────────────┐
+                 │      │ STUDENT       │                 │ PROSPECTOR    │                 │ ADMIN         │
+                 │      │ Dashboard     │                 │ Dashboard     │                 │ Dashboard     │
+                 │      └───────┬───────┘                 └───────┬───────┘                 └───────┬───────┘
+                 │              │                                 │                                 │
+                 │      View courses/materials            Add Student  ───────────────────►  creates User(STUDENT)
+                 │      View assignments  ◄───────────  Create Assignment + assign + due date
+                 │      Submit assignment ───────────►  Review submission, grade
+                 │      View mock exams   ◄───────────  Build mock exam + assign + due date
+                 │      Take exam (timer) ───────────►  Auto-grade -> Result stored
+                 │      View result/progress                     │                                 │
+                 │                                                 ▼                                 ▼
+                 │                                        Manage Courses/Materials         Manage Students (CRUD)
+                 │                                                                          Manage Prospectors (CRUD)
+                 │                                                                          View platform stats
+                 │                                                                          View all enquiries
+                 └────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Data flow for "assign mock exam with deadline" (representative of the
+assignment/material flows too):
+
+  Prospector UI (builder form)
+        │  Server Action: createMockExam() -> zod validate -> role check
+        ▼
+  Prisma: MockExam + ExamSection + Question rows created
+        │  Server Action: assignExamToStudents(examId, studentIds[], dueAt)
+        ▼
+  Prisma: ExamAssignment rows created (status = NOT_STARTED)
+        │
+        ▼
+  Student dashboard query (per-student) includes new ExamAssignment
+        │  Student clicks "Start" -> ExamAttempt created (status IN_PROGRESS)
+        ▼
+  Timed UI collects ExamAnswer rows -> on submit or timeout:
+        │  grading function compares selectedOptionIds vs correctOptionIds
+        ▼
+  ExamAttempt.status = GRADED, score computed -> shown on result page and
+  reflected in ExamAssignment.status + student progress chart.
+
+================================================================================
+END OF SPECIFICATION
+================================================================================
