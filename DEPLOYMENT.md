@@ -136,6 +136,37 @@ CMD ["node", "server.js"]
 Run `npx prisma migrate deploy` as a separate step (entrypoint script or CI job) before starting
 the container, since the standalone server doesn't run migrations itself.
 
+### Option D — Firebase App Hosting (needs Postgres per section 3)
+
+Use **Firebase App Hosting**, not classic Firebase Hosting — classic Hosting only serves static
+files and can't run login, dashboards, Server Actions, or middleware. App Hosting runs Next.js
+on Cloud Run and supports all of that. `apphosting.yaml` at the repo root is already configured
+for it; `binaryTargets` in `prisma/schema.prisma` already includes the Cloud Run-compatible
+Prisma engine.
+
+1. Install the CLI and log in: `npm install -g firebase-tools && firebase login`.
+2. From the project root: `firebase init apphosting` and select/create your Firebase project —
+   this links the repo to a Firebase project id (there isn't one configured yet).
+3. Create the two secrets `apphosting.yaml` references:
+   ```bash
+   firebase apphosting:secrets:set DATABASE_URL
+   firebase apphosting:secrets:set NEXTAUTH_SECRET
+   firebase apphosting:secrets:grantaccess DATABASE_URL --backend <your-backend-id>
+   firebase apphosting:secrets:grantaccess NEXTAUTH_SECRET --backend <your-backend-id>
+   ```
+4. Edit the `NEXTAUTH_URL` value in `apphosting.yaml` to your actual App Hosting URL (shown after
+   your backend is created — typically `https://<backend-id>--<project-id>.web.app` or a custom
+   domain) — it must match exactly, https, no trailing slash.
+5. Easiest path since this repo is already on GitHub: in the Firebase Console → App Hosting,
+   connect the `adavize123/Brainstorm-with-Zinchi-platform` repo directly for automatic deploys on
+   push to `main`. Otherwise deploy manually: `firebase deploy --only apphosting`.
+6. Run `npx prisma migrate deploy` against your production `DATABASE_URL` once before the first
+   real deploy (from your machine, pointed at the same database) — App Hosting doesn't run
+   migrations for you.
+7. For the database itself, either use Cloud SQL for PostgreSQL (stays entirely on GCP/Firebase)
+   or keep using an external Postgres like Supabase/Neon — App Hosting reaches either fine over
+   the network, Prisma doesn't care which you pick.
+
 --------------------------------------------------------------------------------
 ## 5. Post-deploy checklist
 

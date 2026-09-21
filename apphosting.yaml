@@ -1,0 +1,40 @@
+# Firebase App Hosting configuration.
+# Docs: https://firebase.google.com/docs/app-hosting/configure
+#
+# This is the config for Firebase's Next.js-native hosting product (Cloud Run
+# under the hood) — NOT classic Firebase Hosting, which only serves static
+# files and can't run this app's login, dashboards, or Server Actions.
+#
+# Secrets below must be created once before your first deploy:
+#   firebase apphosting:secrets:set DATABASE_URL
+#   firebase apphosting:secrets:set NEXTAUTH_SECRET
+# Then grant your App Hosting backend access to them:
+#   firebase apphosting:secrets:grantaccess DATABASE_URL --backend <your-backend-id>
+#   firebase apphosting:secrets:grantaccess NEXTAUTH_SECRET --backend <your-backend-id>
+
+runConfig:
+  minInstances: 0
+  maxInstances: 2
+
+env:
+  # SQLite ("file:./dev.db") will NOT work here — App Hosting's filesystem is
+  # ephemeral and not shared across instances. Point this at a real Postgres
+  # database (Supabase, Neon, Cloud SQL, etc.) before deploying. See
+  # DEPLOYMENT.md section 3 for the one-time schema/migration switch.
+  - variable: DATABASE_URL
+    secret: DATABASE_URL
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXTAUTH_SECRET
+    secret: NEXTAUTH_SECRET
+    availability:
+      - RUNTIME
+
+  # Set this to your actual App Hosting URL (or custom domain) once known —
+  # it must match exactly (https, no trailing slash) or login redirects break.
+  - variable: NEXTAUTH_URL
+    value: "https://your-app-id.web.app"
+    availability:
+      - RUNTIME
