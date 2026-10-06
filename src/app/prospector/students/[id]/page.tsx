@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/dashboard/deadline-badge";
 import { initials } from "@/lib/utils";
 import { EnrollCourseDialog } from "@/components/dashboard/enroll-course-dialog";
+import { computeExamResult } from "@/lib/exam-standards";
 
 export default async function ProspectorStudentDetailPage({ params }: { params: { id: string } }) {
   const student = await prisma.user.findUnique({
@@ -15,7 +16,7 @@ export default async function ProspectorStudentDetailPage({ params }: { params: 
     include: {
       enrollments: { include: { course: true } },
       assignmentTargets: { include: { assignment: true } },
-      examAssignments: { include: { mockExam: true } },
+      examAssignments: { include: { mockExam: true, attempt: true } },
     },
   });
 
@@ -90,12 +91,26 @@ export default async function ProspectorStudentDetailPage({ params }: { params: 
             {student.examAssignments.length === 0 ? (
               <p className="text-sm text-muted-foreground">No mock tests assigned yet.</p>
             ) : (
-              student.examAssignments.map((e) => (
-                <div key={e.id} className="flex items-center justify-between rounded-lg border p-3">
-                  <span className="text-sm">{e.mockExam.title}</span>
-                  <StatusBadge status={e.status} />
-                </div>
-              ))
+              student.examAssignments.map((e) => {
+                const result =
+                  e.status === "GRADED" && e.attempt
+                    ? computeExamResult(e.attempt.score ?? 0, e.attempt.totalMarks ?? 0, e.mockExam.examType)
+                    : null;
+                return (
+                  <div key={e.id} className="flex items-center justify-between rounded-lg border p-3 gap-3 flex-wrap">
+                    <span className="text-sm">{e.mockExam.title}</span>
+                    <div className="flex items-center gap-2">
+                      {result && (
+                        <span className="text-sm text-muted-foreground">
+                          {result.scaledDisplay} / {result.maxScaledDisplay}
+                        </span>
+                      )}
+                      {result && <Badge variant={result.grade.variant}>{result.grade.label}</Badge>}
+                      <StatusBadge status={e.status} />
+                    </div>
+                  </div>
+                );
+              })
             )}
           </CardContent>
         </Card>

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { EXAM_STANDARDS } from "@/lib/exam-standards";
+
+const examTypeValues = Object.keys(EXAM_STANDARDS) as [string, ...string[]];
 
 export const registerSchema = z.object({
   name: z.string().min(2, "Name is too short").max(100),
@@ -89,6 +92,7 @@ export const sectionSchema = z.object({
 
 export const mockExamSchema = z.object({
   title: z.string().min(3).max(150),
+  examType: z.enum(examTypeValues).default("GENERAL"),
   courseId: z.string().optional(),
   durationMinutes: z.coerce.number().int().min(5).max(300),
   sections: z.array(sectionSchema).min(1),

@@ -18,6 +18,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { createMockExam } from "@/app/actions/mock-exams";
+import { EXAM_TYPE_OPTIONS, type ExamType } from "@/lib/exam-standards";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 
 let uid = 0;
@@ -54,6 +55,7 @@ function newSection(): SectionDraft {
 export function MockExamBuilder({ courses }: { courses: { id: string; title: string }[] }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
+  const [examType, setExamType] = useState<ExamType>("GENERAL");
   const [courseId, setCourseId] = useState<string>("none");
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [sections, setSections] = useState<SectionDraft[]>([newSection()]);
@@ -164,6 +166,7 @@ export function MockExamBuilder({ courses }: { courses: { id: string; title: str
 
   function resetBuilder() {
     setTitle("");
+    setExamType("GENERAL");
     setCourseId("none");
     setDurationMinutes(60);
     setSections([newSection()]);
@@ -175,6 +178,7 @@ export function MockExamBuilder({ courses }: { courses: { id: string; title: str
     try {
       await createMockExam({
         title,
+        examType,
         courseId: courseId === "none" ? undefined : courseId,
         durationMinutes,
         sections: sections.map((s) => ({
@@ -216,6 +220,23 @@ export function MockExamBuilder({ courses }: { courses: { id: string; title: str
             <div className="space-y-1.5 col-span-2">
               <Label>Exam title</Label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. SAT Mock Test 2" />
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Exam standard</Label>
+              <Select value={examType} onValueChange={(v) => setExamType(v as ExamType)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EXAM_TYPE_OPTIONS.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Results will be reported on the real {EXAM_TYPE_OPTIONS.find((s) => s.value === examType)?.label}{" "}
+                scale ({EXAM_TYPE_OPTIONS.find((s) => s.value === examType)?.min}–
+                {EXAM_TYPE_OPTIONS.find((s) => s.value === examType)?.max}), estimated from the
+                percentage of questions answered correctly.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>Course (optional)</Label>

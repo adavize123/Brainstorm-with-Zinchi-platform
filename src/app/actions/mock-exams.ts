@@ -12,6 +12,7 @@ export async function createMockExam(input: unknown) {
   const mockExam = await prisma.mockExam.create({
     data: {
       title: data.title,
+      examType: data.examType,
       courseId: data.courseId || null,
       durationMinutes: data.durationMinutes,
       createdById: session.user.id,

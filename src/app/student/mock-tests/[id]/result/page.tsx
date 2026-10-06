@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { computeExamResult } from "@/lib/exam-standards";
 
 export default async function MockTestResultPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -26,7 +27,7 @@ export default async function MockTestResultPage({ params }: { params: { id: str
 
   const attempt = examAssignment.attempt;
   const answerByQuestion = new Map(attempt.answers.map((a) => [a.questionId, a]));
-  const percent = attempt.totalMarks ? Math.round(((attempt.score ?? 0) / attempt.totalMarks) * 100) : 0;
+  const result = computeExamResult(attempt.score ?? 0, attempt.totalMarks ?? 0, examAssignment.mockExam.examType);
 
   return (
     <div>
@@ -35,13 +36,18 @@ export default async function MockTestResultPage({ params }: { params: { id: str
       <Card className="mb-6">
         <CardContent className="pt-6 flex items-center justify-between flex-wrap gap-4">
           <div>
-            <p className="text-sm text-muted-foreground">Your Score</p>
+            <p className="text-sm text-muted-foreground">
+              Estimated {result.standard.label} Score
+            </p>
             <p className="text-3xl font-bold">
-              {attempt.score}/{attempt.totalMarks}
+              {result.scaledDisplay} <span className="text-base font-normal text-muted-foreground">/ {result.maxScaledDisplay}</span>
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {attempt.score}/{attempt.totalMarks} correct ({Math.round(result.percentage)}%)
             </p>
           </div>
-          <Badge variant={percent >= 70 ? "success" : percent >= 40 ? "warning" : "destructive"} className="text-base px-4 py-1.5">
-            {percent}%
+          <Badge variant={result.grade.variant} className="text-base px-4 py-1.5">
+            {result.grade.label}
           </Badge>
         </CardContent>
       </Card>

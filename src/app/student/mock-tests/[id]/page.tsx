@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StartExamButton } from "@/components/student/start-exam-button";
 import { ExamTaker } from "@/components/student/exam-taker";
 import { Clock, FileQuestion } from "lucide-react";
+import { EXAM_STANDARDS, isExamType } from "@/lib/exam-standards";
 
 export default async function TakeMockTestPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -33,6 +34,11 @@ export default async function TakeMockTestPage({ params }: { params: { id: strin
             <p className="text-sm text-muted-foreground mt-2 max-w-md flex items-center gap-1 justify-center">
               <Clock className="h-4 w-4" /> You&apos;ll have {examAssignment.mockExam.durationMinutes} minutes once you start.
               The timer cannot be paused.
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Your result will be reported on the{" "}
+              {EXAM_STANDARDS[isExamType(examAssignment.mockExam.examType) ? examAssignment.mockExam.examType : "GENERAL"].label}{" "}
+              scale.
             </p>
             <div className="mt-6">
               <StartExamButton examAssignmentId={examAssignment.id} />

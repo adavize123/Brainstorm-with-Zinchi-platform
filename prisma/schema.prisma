@@ -155,6 +155,7 @@ model AssignmentTarget {
 model MockExam {
   id              String   @id @default(cuid())
   title           String
+  examType        String   @default("GENERAL") // SAT | IELTS | TOEFL | GRE | GMAT | PTE | DUOLINGO | GENERAL
   courseId        String?
   course          Course?  @relation(fields: [courseId], references: [id])
   durationMinutes Int      @default(60)

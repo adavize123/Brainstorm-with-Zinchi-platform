@@ -264,10 +264,14 @@ async function main() {
   }
 
   let mockExam = await prisma.mockExam.findFirst({ where: { title: "SAT Mock Test 1" } });
+  if (mockExam && mockExam.examType !== "SAT") {
+    mockExam = await prisma.mockExam.update({ where: { id: mockExam.id }, data: { examType: "SAT" } });
+  }
   if (!mockExam)
   mockExam = await prisma.mockExam.create({
     data: {
       title: "SAT Mock Test 1",
+      examType: "SAT",
       courseId: satCourse.id,
       durationMinutes: 45,
       createdById: prospector.id,

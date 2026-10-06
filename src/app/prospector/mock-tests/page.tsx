@@ -9,6 +9,7 @@ import { MockExamBuilder } from "@/components/dashboard/mock-exam-builder";
 import { AssignExamDialog } from "@/components/dashboard/assign-exam-dialog";
 import { ConfirmDeleteDialog } from "@/components/dashboard/confirm-delete-dialog";
 import { deleteMockExam } from "@/app/actions/mock-exams";
+import { computeExamResult, EXAM_STANDARDS, isExamType } from "@/lib/exam-standards";
 
 export default async function ProspectorMockTestsPage() {
   const [mockExams, courses, students] = await Promise.all([
@@ -16,7 +17,7 @@ export default async function ProspectorMockTestsPage() {
       include: {
         course: true,
         sections: { include: { questions: true } },
-        assignments: { include: { student: true } },
+        assignments: { include: { student: true, attempt: true } },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -44,6 +45,9 @@ export default async function ProspectorMockTestsPage() {
                   <div>
                     <CardTitle className="text-base">{exam.title}</CardTitle>
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      <Badge variant="secondary">
+                        {EXAM_STANDARDS[isExamType(exam.examType) ? exam.examType : "GENERAL"].label}
+                      </Badge>
                       {exam.course && <Badge variant="outline">{exam.course.title}</Badge>}
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="h-3.5 w-3.5" /> {exam.durationMinutes} min
@@ -62,12 +66,26 @@ export default async function ProspectorMockTestsPage() {
                 </CardHeader>
                 {exam.assignments.length > 0 && (
                   <CardContent className="space-y-2">
-                    {exam.assignments.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between rounded-lg border p-3">
-                        <span className="text-sm">{a.student.name}</span>
-                        <StatusBadge status={a.status} />
-                      </div>
-                    ))}
+                    {exam.assignments.map((a) => {
+                      const result =
+                        a.status === "GRADED" && a.attempt
+                          ? computeExamResult(a.attempt.score ?? 0, a.attempt.totalMarks ?? 0, exam.examType)
+                          : null;
+                      return (
+                        <div key={a.id} className="flex items-center justify-between rounded-lg border p-3 gap-3 flex-wrap">
+                          <span className="text-sm">{a.student.name}</span>
+                          <div className="flex items-center gap-2">
+                            {result && (
+                              <span className="text-sm text-muted-foreground">
+                                {result.scaledDisplay} / {result.maxScaledDisplay}
+                              </span>
+                            )}
+                            {result && <Badge variant={result.grade.variant}>{result.grade.label}</Badge>}
+                            <StatusBadge status={a.status} />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </CardContent>
                 )}
               </Card>
